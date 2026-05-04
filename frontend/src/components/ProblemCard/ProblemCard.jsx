@@ -246,6 +246,14 @@ export default function ProblemCard({ problem, onSolved, initialSolved = false }
       )}
 
       {/* Result feedback */}
+      {status === 'wrong' && (
+        <div
+          className="rounded-xl px-4 py-3 text-center text-sm font-semibold"
+          style={{ backgroundColor: 'var(--color-boss)22', color: 'var(--color-boss)' }}
+        >
+          Incorrect — try again.
+        </div>
+      )}
       {status === 'correct' && (
         <div
           className="rounded-xl px-4 py-3 text-center text-sm font-semibold flex items-center justify-center gap-2"
