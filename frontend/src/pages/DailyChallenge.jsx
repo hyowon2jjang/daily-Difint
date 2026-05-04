@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import ProblemCard from '../components/ProblemCard/ProblemCard'
 import LatexCheatSheet from '../components/LatexCheatSheet/LatexCheatSheet'
 import api from '../utils/api'
@@ -18,11 +19,14 @@ function getTodayLabel() {
 }
 
 export default function DailyChallenge() {
-  const { setStreak } = useUserStore()
+  const { user, setStreak } = useUserStore()
+  const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState(0)
   const [problems, setProblems] = useState(null)
-  const [solved, setSolved] = useState({}) // { problem_id: attemptCount }
+  const [solved, setSolved] = useState({})
   const [loading, setLoading] = useState(true)
+  const [showSignupPrompt, setShowSignupPrompt] = useState(false)
+  const promptShownRef = useRef(false)
   const weekend = isWeekend()
 
   const allTabs = weekend ? [...TABS, 'Boss'] : TABS
@@ -54,6 +58,13 @@ export default function DailyChallenge() {
         .filter(Boolean)
         .every((id) => solved[id])
     : false
+
+  useEffect(() => {
+    if (requiredSolved && !user && !promptShownRef.current) {
+      promptShownRef.current = true
+      setShowSignupPrompt(true)
+    }
+  }, [requiredSolved, user])
 
   function handleSolved(problemId, attemptCount) {
     setSolved((prev) => ({ ...prev, [problemId]: attemptCount }))
@@ -132,6 +143,38 @@ export default function DailyChallenge() {
       )}
 
       <LatexCheatSheet />
+
+      {showSignupPrompt && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}
+        >
+          <div
+            className="rounded-2xl p-6 max-w-sm w-full flex flex-col gap-4 text-center"
+            style={{ backgroundColor: 'var(--color-surface)' }}
+          >
+            <div className="text-3xl">🎉</div>
+            <h2 className="text-lg font-bold">You completed today's challenge!</h2>
+            <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
+              Sign up to save your streak and XP — your progress will be waiting for you tomorrow.
+            </p>
+            <button
+              onClick={() => navigate('/signup')}
+              className="w-full py-3 rounded-xl font-semibold text-sm"
+              style={{ backgroundColor: 'var(--color-primary)', color: '#fff' }}
+            >
+              Sign up and save progress
+            </button>
+            <button
+              onClick={() => setShowSignupPrompt(false)}
+              className="text-xs"
+              style={{ color: 'var(--color-text-muted)' }}
+            >
+              Maybe later
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Progress indicator */}
       {problems && (

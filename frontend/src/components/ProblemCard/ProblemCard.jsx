@@ -28,8 +28,17 @@ function getStoredSecondsLeft(problemId) {
   return remaining > 0 ? remaining : 0
 }
 
+function getGuestSession() {
+  let session = localStorage.getItem('guest_session')
+  if (!session) {
+    session = crypto.randomUUID()
+    localStorage.setItem('guest_session', session)
+  }
+  return session
+}
+
 export default function ProblemCard({ problem, onSolved, initialSolved = false }) {
-  const { setStreak } = useUserStore()
+  const { user, setStreak } = useUserStore()
   const [input, setInput] = useState('')
   const [attempts, setAttempts] = useState(0)
   const [roundAttempts, setRoundAttempts] = useState(0)
@@ -77,6 +86,7 @@ export default function ProblemCard({ problem, onSolved, initialSolved = false }
       const res = await api.post('/daily/submit', {
         problem_id: problem.id,
         answer_latex: input.trim(),
+        guest_session: user ? undefined : getGuestSession(),
       })
 
       if (res.data.correct) {
