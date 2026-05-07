@@ -51,39 +51,45 @@ def check_answer(user_latex: str, correct_latex: str) -> bool:
     return _numeric_check(user_expr, correct_expr)
 
 
+SAMPLE_RANGES = [
+    (1.5, 8.0),    # avoids x=1 singularity and log(negative) for (x-1)/(x+1)
+    (0.1, 0.9),    # (0,1) domain for arcsin/arccos type answers
+    (8.0, 20.0),   # large x
+    (-0.9, -0.1),  # negative domain
+    (-8.0, -1.5),  # large negative
+]
+
+
 def _numeric_check(user_expr, correct_expr) -> bool:
-    """Sample N random points, compare both expressions within tolerance."""
-    try:
-        rng = np.random.default_rng(42)
-        sample_vals = rng.uniform(0.1, 3.0, SAMPLE_POINTS)
+    """Try multiple sample ranges; accept if any range gives consistent real offsets."""
+    rng = np.random.default_rng(42)
 
-        for val in sample_vals:
-            try:
-                u = complex(user_expr.subs(x, val))
-                c = complex(correct_expr.subs(x, val))
-                if abs(u - c) > TOLERANCE:
-                    # Allow for constant offset (indefinite integral)
-                    # Compute offset at first point and check consistency
-                    break
-            except Exception:
-                return False
-
-        # Check with constant offset allowed
+    for lo, hi in SAMPLE_RANGES:
+        samples = rng.uniform(lo, hi, SAMPLE_POINTS)
         offsets = []
-        for val in sample_vals:
+        valid = True
+
+        for val in samples:
             try:
                 u = complex(user_expr.subs(x, val))
                 c = complex(correct_expr.subs(x, val))
-                offsets.append(u - c)
+                if not (np.isfinite(u.real) and np.isfinite(c.real)):
+                    valid = False
+                    break
+                # Skip range if either expression is complex on this domain
+                if abs(u.imag) > 1e-6 or abs(c.imag) > 1e-6:
+                    valid = False
+                    break
+                offsets.append(u.real - c.real)
             except Exception:
-                return False
+                valid = False
+                break
 
-        if not offsets:
-            return False
+        if not valid or len(offsets) < SAMPLE_POINTS:
+            continue
 
-        # All offsets should be the same constant
         ref = offsets[0]
-        return all(abs(o - ref) < TOLERANCE for o in offsets)
+        if all(abs(o - ref) < TOLERANCE for o in offsets):
+            return True
 
-    except Exception:
-        return False
+    return False
