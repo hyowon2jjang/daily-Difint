@@ -106,12 +106,25 @@ async def get_status(
     solved_attempts = result.scalars().all()
     solved_ids = list({str(a.problem_id) for a in solved_attempts})
 
-    # Also return current streak count
+    # Return current streak — fall back to yesterday if today's row doesn't exist yet
     streak_result = await db.execute(
         select(Streak).where(Streak.user_id == user_id, Streak.date == today)
     )
     streak_row = streak_result.scalar_one_or_none()
-    streak_count = streak_row.streak_count if streak_row else 0
+    if streak_row:
+        streak_count = streak_row.streak_count
+    else:
+        from datetime import timedelta
+        yesterday = today - timedelta(days=1)
+        prev_result = await db.execute(
+            select(Streak).where(Streak.user_id == user_id, Streak.date == yesterday)
+        )
+        prev_row = prev_result.scalar_one_or_none()
+        streak_count = (
+            prev_row.streak_count
+            if prev_row and prev_row.easy1_done and prev_row.easy2_done and prev_row.medium_done
+            else 0
+        )
 
     return {"solved": solved_ids, "streak": streak_count}
 
