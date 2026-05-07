@@ -386,6 +386,10 @@ export default function AdminPage() {
                   <p className="text-xs mt-1 font-mono" style={{ color: 'var(--color-text-muted)' }}>
                     ID: {p.id}
                   </p>
+                  <div className="mt-1 flex items-center gap-2">
+                    <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>Answer:</span>
+                    <MathDisplay latex={p.answer_latex} />
+                  </div>
                 </div>
               ))
             }
