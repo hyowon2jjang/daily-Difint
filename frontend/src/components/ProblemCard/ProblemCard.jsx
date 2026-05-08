@@ -232,6 +232,15 @@ export default function ProblemCard({ problem, onSolved, initialSolved = false }
               color: 'var(--color-text)',
             }}
           />
+          {input.trim() && (
+            <div
+              className="px-4 py-3 rounded-xl text-center"
+              style={{ backgroundColor: 'var(--color-surface-2)', border: '1px solid var(--color-border)' }}
+            >
+              <p className="text-xs mb-2" style={{ color: 'var(--color-text-muted)' }}>Preview</p>
+              <MathDisplay latex={input} block />
+            </div>
+          )}
           <div className="flex items-center justify-between">
             {isMedium ? (
               <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
