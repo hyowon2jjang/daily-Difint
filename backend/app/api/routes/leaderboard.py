@@ -40,17 +40,30 @@ async def get_leaderboard(
         if not user:
             continue
 
-        # Get current streak
+        # Get current streak — fall back to yesterday if today's row doesn't exist yet
+        today = date.today()
         streak_result = await db.execute(
-            select(Streak)
-            .where(Streak.user_id == user_id, Streak.date == date.today())
+            select(Streak).where(Streak.user_id == user_id, Streak.date == today)
         )
         streak_row = streak_result.scalar_one_or_none()
+        if streak_row:
+            streak_count = streak_row.streak_count
+        else:
+            yesterday = today - timedelta(days=1)
+            prev_result = await db.execute(
+                select(Streak).where(Streak.user_id == user_id, Streak.date == yesterday)
+            )
+            prev_row = prev_result.scalar_one_or_none()
+            streak_count = (
+                prev_row.streak_count
+                if prev_row and prev_row.easy1_done and prev_row.easy2_done and prev_row.medium_done
+                else 0
+            )
 
         entries.append({
             "username": user.username,
             "xp_this_period": xp_earned,
-            "streak": streak_row.streak_count if streak_row else 0,
+            "streak": streak_count,
         })
 
     return {"period": period, "entries": entries}
