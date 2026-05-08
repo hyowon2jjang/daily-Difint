@@ -1,7 +1,7 @@
 # dailyDifint — Full Design Document
 
-**Version:** 1.0  
-**Date:** 2026-04-11  
+**Version:** 1.1  
+**Date:** 2026-05-07  
 **Author:** Won Lee
 
 ---
@@ -48,18 +48,18 @@
 
 ## 2. Tech Stack
 
-| Layer | Technology | Reason |
+| Layer | Technology | Notes |
 |---|---|---|
 | Frontend framework | React + Vite | Fast dev, component model, mobile-first |
 | Styling | TailwindCSS | Utility-first, responsive design easy |
 | Math rendering | KaTeX | Fast, lightweight LaTeX rendering in-browser |
-| Math input | MathQuill | Calculator-style equation keyboard for input |
+| Math input | Plain text (LaTeX) | MathQuill not implemented; users type raw LaTeX with cheat sheet |
 | Backend | Python (FastAPI) | Fast API, native SymPy integration |
 | CAS engine | SymPy | Symbolic answer equivalence checking |
-| Numeric verification | NumPy | Fallback numeric sampling check |
-| Database | PostgreSQL | Relational, handles user/problem/streak data |
-| Auth + Realtime | Firebase | Firebase Auth for accounts, push notifications for nudges |
-| Hosting (suggested) | Railway (backend) + Vercel (frontend) | Simple deployment, free tiers available |
+| Numeric verification | NumPy | Fallback multi-range numeric sampling check |
+| Database | PostgreSQL (Neon) | Serverless Neon on free tier |
+| Auth | JWT (python-jose) | Firebase not used; custom JWT auth |
+| Hosting | Render (backend) + Vercel (frontend) + Neon (DB) | All free tiers; Render kept alive via UptimeRobot |
 
 ---
 
@@ -710,11 +710,10 @@ xp_ledger (
 
 ## 15. API Structure
 
-### Auth (Firebase-managed, but backend validates tokens)
+### Auth (JWT — no Firebase)
 ```
-POST /auth/register          Create user in DB after Firebase signup
-POST /auth/login             Verify Firebase token, return user data
-GET  /auth/me                Get current user info
+POST /auth/register          Create user in DB, return JWT
+POST /auth/login             Verify password, return JWT (7-day expiry)
 ```
 
 ### Daily
@@ -754,12 +753,11 @@ POST /friends/nudge/:user_id Send nudge to a friend
 
 ### Admin
 ```
-GET  /admin/queue            Get pending problem submissions
-POST /admin/problems/:id/approve
-POST /admin/problems/:id/reject
-PUT  /admin/problems/:id     Edit a problem
-POST /admin/schedule         Assign problems to a date
-GET  /admin/schedule/:date   View scheduled problems for a date
+GET    /admin/problems        List all problems (with answers)
+POST   /admin/problems        Create a problem (admin only)
+GET    /admin/schedule        List last 30 scheduled dates
+POST   /admin/schedule        Schedule 4 problems for a date
+DELETE /admin/schedule/:date  Remove a scheduled day
 ```
 
 ---
@@ -838,16 +836,15 @@ src/
 
 ## 17. Open Design Decisions
 
-These points are noted but not yet finalized — revisit before implementation:
-
-| # | Question | Current Thinking |
+| # | Question | Current Status |
 |---|---|---|
-| 1 | **How far ahead should daily problems be scheduled?** | Ideally 1–2 weeks ahead so the admin isn't blocked day-to-day |
-| 2 | **Should the Boss problem be the same for all users, or drawn from a pool?** | Same for all — keeps it communal and shareable |
-| 3 | **Should there be a "hint" system for Medium?** | Not for now — keeps it clean. Revisit if user feedback asks for it |
-| 4 | **What topics are in scope for the platform?** | Single-variable calculus techniques + first/second order ODEs + Laplace. No multivariable, no PDEs for now |
-| 5 | **Should community problem solves show on the radar chart?** | Yes — tag data from community solves should feed into weakness tracking |
-| 6 | **Email notifications for nudges vs push only?** | Firebase push for now, email option as a future enhancement |
+| 1 | **How far ahead should daily problems be scheduled?** | `schedule_30days.py` auto-schedules 30 days; re-run every ~3 weeks |
+| 2 | **Should the Boss problem be the same for all users?** | Yes — same for all, weekend only |
+| 3 | **Should there be a "hint" system for Medium?** | Not implemented — keeping clean |
+| 4 | **What topics are in scope?** | Single-variable calculus + first/second order ODEs + Laplace. No multivariable. |
+| 5 | **Should community problem solves show on the radar chart?** | Not yet — `topic_stats` table exists but nothing writes to it |
+| 6 | **Notifications for nudges?** | Firebase removed; nudge system not yet implemented |
+| 7 | **MathQuill input?** | Not implemented — users type raw LaTeX with cheat sheet sidebar |
 
 ---
 

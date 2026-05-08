@@ -1,23 +1,45 @@
 # dailyDifint — Progress & Roadmap
 
-## Current State (2026-04-24)
+## Current State (2026-05-07)
 
-Full-stack calculus daily challenge app running locally. Core features complete and tested.
+Full-stack calculus daily challenge app live in production.
+
+| Layer | URL |
+|---|---|
+| Frontend | https://daily-difint.vercel.app |
+| Backend | https://daily-difint.onrender.com |
+| Database | Neon (PostgreSQL, serverless) |
 
 ---
 
 ## Infrastructure
 
-- PostgreSQL database `dailydifint` — 15 tables (13 original + `post_upvotes`)
-- Python venv with all dependencies installed
-- Backend: `http://localhost:8001` (port 8001 — 8000 was occupied)
-- Frontend: `http://localhost:5173`
-- Admin panel: `http://localhost:5173/admin` (login as wonlee or admin2)
+- **Database:** Neon PostgreSQL — 15 tables (13 original + `post_upvotes`)
+- **Backend:** FastAPI on Render (free tier, kept alive via UptimeRobot 5-min pings)
+- **Frontend:** React/Vite static build on Vercel
+- **Python version:** pinned to 3.11.9 via `backend/.python-version`
+- **SSL:** asyncpg SSL handled via `connect_args` in `database.py` (sslmode stripped from URL)
+- **CORS:** configured via `ALLOWED_ORIGINS` env var on Render
+- **Routing:** `frontend/vercel.json` rewrites all paths to `index.html` for React Router
 
-### Dependency fixes required on fresh install
-```bash
-pip install "bcrypt==3.2.2"          # passlib 1.7.4 incompatibility
-pip install antlr4-python3-runtime==4.11  # SymPy LaTeX parser
+### Render Environment Variables
+```
+DATABASE_URL=postgresql+asyncpg://...neon.tech/...
+SECRET_KEY=<64-char hex>
+ADMIN_USERNAMES=wonlee,admin2
+ALLOWED_ORIGINS=https://daily-difint.vercel.app
+```
+
+### Vercel Environment Variables
+```
+VITE_API_URL=https://daily-difint.onrender.com
+```
+
+### Local Dev
+```
+DATABASE_URL=postgresql+asyncpg://postgres:<password>@localhost/dailydifint
+SECRET_KEY=<same as production>
+ADMIN_USERNAMES=wonlee,admin2
 ```
 
 ---
@@ -28,12 +50,14 @@ pip install antlr4-python3-runtime==4.11  # SymPy LaTeX parser
 - `POST /auth/register` — username, email, password, optional friend code (+50 XP both)
 - `POST /auth/login` — returns JWT (7-day expiry)
 
-### Daily Challenge `/daily`
+### Daily `/daily`
 - `GET /daily/today` — today's 4 problems from `daily_schedule`
 - `GET /daily/status` — solved problem IDs + current streak count (JWT required)
+  - Falls back to yesterday's completed streak count if today's row doesn't exist yet
 - `POST /daily/submit` — SymPy CAS + numeric fallback answer check; awards XP + updates streak
   - XP: easy=10, medium=25, boss=50
   - Returns `xp_earned`, `streak`, `correct`, `attempt_number`
+  - Supports `guest_session` UUID for guest attempt tracking
 - Streak logic: creates/upserts `streaks` row per day; chains correctly from yesterday
 
 ### Community `/community`
@@ -50,13 +74,12 @@ pip install antlr4-python3-runtime==4.11  # SymPy LaTeX parser
 ### Profile `/profile`
 - `GET /profile/{username}` — XP, level, streak, friend code, level progress %, XP last 7 days, 6-month solve calendar, topic stats, badges, boss solve count, accuracy
 
-### Admin `/admin` ⭐ new
-- `GET /admin/problems` — list all problems in pool
+### Admin `/admin`
+- `GET /admin/problems` — list all problems in pool (includes `answer_latex`)
 - `POST /admin/problems` — create problem (admin only)
 - `GET /admin/schedule` — list last 30 scheduled dates
 - `POST /admin/schedule` — schedule 4 problems for a date
 - `DELETE /admin/schedule/{date}` — remove a scheduled day
-- Admin check: compares JWT username against `ADMIN_USERNAMES` in `.env`
 
 ---
 
@@ -71,27 +94,38 @@ pip install antlr4-python3-runtime==4.11  # SymPy LaTeX parser
 | `/leaderboard` | Weekly/monthly rankings, clickable rows → profile |
 | `/profile/:username` | Stats, XP chart, solve calendar, logout (own profile) |
 | `/login` `/signup` | Auth pages |
-| `/admin` | Admin panel — create problems, schedule days |
+| `/admin` | Admin panel — create problems, schedule days, view problem pool with answers |
 
 ### Key Components
 - **ProblemCard** — answer input, attempt tracker, cooldown system
   - Medium: 60s cooldown after 3 wrong attempts; persists via `localStorage`
   - Boss: 1 attempt only
-  - Shows `+XP` badge on correct
-- **LatexCheatSheet** — collapsible, 5 sections (Powers, Trig, Exp/Log, Calculus, Greek), rendered math + code, click-to-copy with green flash feedback
-- **MathDisplay** — KaTeX wrapper, null-safe, clears on re-render
+  - Shows `+XP` badge on correct, red "Incorrect — try again." on wrong
+  - Guests: UUID `guest_session` from localStorage sent with every submit
+- **DailyChallenge** — shows sign-up prompt modal when guest completes all 3 required problems
+- **LatexCheatSheet** — collapsible, 5 sections, click-to-copy
+- **MathDisplay** — KaTeX wrapper, null-safe
 - **Navbar** — streak 🔥, avatar → profile, Admin link (admin only), login/signup
-- **BottomNav** ⭐ new — fixed mobile bottom tab bar (Daily, Community, Ranks, Profile icons); hidden on desktop `md:`
-- **SubmitModal** — live LaTeX preview while typing problem + answer
+- **BottomNav** — fixed mobile bottom tab bar; hidden on desktop `md:`
 
 ### State
 - Zustand store (localStorage): `user`, `token`, `streak`
 - Streak synced from DB on app load + after each correct solve
 
-### Community PostRow
-- Upvote: DB-enforced once-per-user, button locks after click
-- Try It: inline solver → "✓ Solve Again" after first correct (no duplicate solve count)
-- Discuss: lazy-loaded comments, inline post form
+---
+
+## Answer Checker
+
+Pipeline: SymPy CAS symbolic check → multi-range numeric fallback.
+
+Numeric checker tries 5 sample ranges in order and accepts the first where both expressions are real and finite:
+1. `(1.5, 8.0)` — default, avoids x=1 singularity
+2. `(0.1, 0.9)` — (0,1) domain for arcsin/arccos type
+3. `(8.0, 20.0)` — large x
+4. `(-0.9, -0.1)` — negative domain
+5. `(-8.0, -1.5)` — large negative
+
+This handles cases like `ln((x-1)/(x+1))` vs `ln|(x-1)/(x+1)|` which differ only in domain.
 
 ---
 
@@ -100,93 +134,12 @@ pip install antlr4-python3-runtime==4.11  # SymPy LaTeX parser
 | Script | Purpose |
 |--------|---------|
 | `create_tables.py` | Create all DB tables from SQLAlchemy models |
-| `add_upvote_table.py` | Create `post_upvotes` table (one-time migration) |
+| `add_upvote_table.py` | Create `post_upvotes` table |
 | `seed.py` | Insert 4 sample problems + today's schedule |
-| `seed_problems.py` | ⭐ Insert 20 easy + 10 medium + 5 boss problems |
-| `add_daily.py` | ⭐ Script to schedule problems for any date |
+| `seed_problems.py` | Insert 20 easy + 10 medium + 5 boss problems |
+| `add_daily.py` | Schedule problems for any date |
+| `schedule_30days.py` | Auto-schedule next 30 days from pool; skips existing dates |
 | `test_checker.py` | Verify SymPy answer checker works |
-
----
-
-## Bug Fixes Applied (2026-04-24 Code Audit)
-
-- **AttemptTracker** — fixed off-by-one in dot color logic
-- **Streak chaining** — now correctly increments from yesterday's count
-- **level_pct** — capped at 100% with `min(100, ...)`
-- **boss_solved** — now queries `UserAttempt JOIN Problem` (was hardcoded 0)
-- **MAX_ATTEMPTS** — changed to `.get()` to prevent KeyError
-- **Duplicate XP ledger** — removed double referral entry in auth.py
-- **Null safety** — added `?.[0]?.toUpperCase() ?? '?'` in Navbar + Leaderboard
-- **MathDisplay** — null guard + `innerHTML = ''` clear before re-render
-- **Comment fetch** — wrapped in try/catch
-- **Mobile layout** — ProfilePage stats `grid-cols-1 sm:grid-cols-2`; Community buttons `flex-wrap`; LatexCheatSheet `minmax(160px)`
-
----
-
-## Known Limitations
-
-- **No Alembic migrations** — schema changes require manual scripts
-- **No daily schedule automation** — admin must manually schedule each day via admin panel
-- **Topic stats not tracked** — `topic_stats` table exists but nothing writes to it on solve
-- **Upvote not persisted on frontend reload** — DB blocks duplicate, but button shows un-upvoted after refresh
-- **No email verification** at signup
-- **No nudge / friend system UI** — models exist, no endpoints
-- **No DB indexes** — full table scans on `UserAttempt`, `Streak`, `XPLedger`
-- **Answer checker tolerance** — `1e-6` may reject valid answers; consider `1e-5`
-- **No rate limiting** — submit endpoint can be spammed
-
----
-
-## Pre-Publish Checklist
-
-### 🔴 Must Fix Before Launch
-
-1. **Change SECRET_KEY** — `hello` in `.env` is insecure; generate a strong random key:
-   ```bash
-   python -c "import secrets; print(secrets.token_hex(32))"
-   ```
-
-2. **Schedule problems for upcoming days** — admin panel → Schedule Day. Without this, `/daily/today` returns 404 and the app shows nothing. Schedule at least 2 weeks ahead.
-
-3. **Set strong DB password** — change from `asdf` to something secure before any public deployment.
-
-4. **Add DB indexes** — add to `models.py` before deploying to avoid slow queries under load:
-   ```python
-   # In UserAttempt.__table_args__
-   Index('ix_ua_user_problem', 'user_id', 'problem_id'),
-   # In Streak.__table_args__
-   Index('ix_streak_user_date', 'user_id', 'date'),
-   # In XPLedger
-   Index('ix_xp_user_created', 'user_id', 'created_at'),
-   ```
-
-5. **CORS origins** — add production frontend URL to `main.py` `allow_origins` list.
-
-6. **Fix FIREBASE_CREDENTIALS_PATH** — either remove Firebase entirely from requirements and code, or supply real credentials. Currently it silently errors on startup.
-
-### 🟡 Strongly Recommended
-
-7. **Track topic stats on solve** — the Technique Strength radar on profiles is always empty. In `daily.py submit_answer`, after a correct solve, upsert `TopicStat` for each tag in `problem.technique_tags`.
-
-8. **Persist upvote state** — add `GET /community/my-upvotes` endpoint; on community load, mark already-upvoted posts so the button shows correctly after refresh.
-
-9. **Rate limiting** — add `slowapi` to limit submit attempts (e.g. 20/min per IP) to prevent spam.
-
-10. **Answer checker tolerance** — change `TOLERANCE = 1e-6` to `1e-5` in `answer_checker.py` to reduce false negatives.
-
-11. **Automate daily scheduling** — build a simple cron or manual weekly workflow to pre-schedule problems. Without this, the app goes dark whenever an admin forgets.
-
-### 🟢 Nice to Have Before Launch
-
-12. **Badge awarding** — wire up at least 2-3 badges (e.g. first solve, 7-day streak, boss killer) to make the badge section on profiles non-empty.
-
-13. **Mobile: Navbar links** — the top navbar links (Daily, Community, Leaderboard) are `hidden md:flex`. On tablets they're also invisible. Consider showing them at `sm:` breakpoint.
-
-14. **Landing page CTAs** — make sure the "Start Today" / "Sign Up" buttons route correctly and the hero section looks good on mobile.
-
-15. **404 page** — add a fallback `<Route path="*">` so unknown URLs don't show a blank screen.
-
-16. **Loading states** — several pages show nothing if the API is slow. Add skeleton loaders or at minimum a spinner.
 
 ---
 
@@ -207,10 +160,56 @@ npm run dev
 - App: http://localhost:5173
 - Admin: http://localhost:5173/admin
 
-### Fresh setup order
-```bash
-python create_tables.py        # create DB schema
-python add_upvote_table.py     # create post_upvotes table
-python seed_problems.py        # load 35 problems into pool
-# then go to /admin → Schedule Day to set up today + upcoming dates
+### Pointing scripts at Neon (PowerShell)
+```powershell
+$env:DATABASE_URL = "postgresql+asyncpg://<user>:<pass>@<host>.neon.tech/<db>?sslmode=require"
+python schedule_30days.py
 ```
+
+### Fresh setup order (against Neon)
+```bash
+python create_tables.py
+python add_upvote_table.py
+python seed_problems.py
+python schedule_30days.py   # run every ~3 weeks
+```
+
+---
+
+## Known Limitations
+
+- **No Alembic migrations** — schema changes require manual scripts
+- **Render cold start** — mitigated by UptimeRobot 5-min pings (free tier)
+- **Neon pauses** — pauses DB after inactivity on free tier; UptimeRobot pings also keep this alive
+- **Timezone** — server runs UTC; `schedule_30days.py` uses local date when run locally
+- **Topic stats not tracked** — `topic_stats` table exists but nothing writes to it on solve
+- **Upvote not persisted on frontend reload** — DB blocks duplicate, but button shows un-upvoted after refresh
+- **No email verification** at signup
+- **No nudge / friend system UI** — models exist, no endpoints
+- **No DB indexes** — full table scans on `UserAttempt`, `Streak`, `XPLedger`
+- **No rate limiting** — submit endpoint can be spammed
+- **Answer checker tolerance** — `1e-6` may reject valid answers; consider `1e-5`
+
+---
+
+## Remaining Pre-Launch Tasks
+
+### Must Do
+1. **Re-run `schedule_30days.py` every ~3 weeks** — problems run out after 30 days; the admin panel shows when the last scheduled date is
+2. **Add DB indexes** — add before heavy traffic:
+   ```python
+   Index('ix_ua_user_problem', 'user_id', 'problem_id'),   # UserAttempt
+   Index('ix_streak_user_date', 'user_id', 'date'),         # Streak
+   Index('ix_xp_user_created', 'user_id', 'created_at'),   # XPLedger
+   ```
+
+### Strongly Recommended
+3. **Track topic stats on solve** — Technique Strength radar on profiles is always empty. In `daily.py submit_answer`, after a correct solve, upsert `TopicStat` for each tag in `problem.technique_tags`.
+4. **Persist upvote state** — add `GET /community/my-upvotes` endpoint so buttons show correctly after refresh.
+5. **Rate limiting** — add `slowapi` to limit submit attempts (e.g. 20/min per IP).
+6. **Answer checker tolerance** — change `TOLERANCE = 1e-6` to `1e-5` in `answer_checker.py`.
+
+### Nice to Have
+7. **Badge awarding** — wire up at least first solve, 7-day streak, boss killer badges.
+8. **Loading states** — add skeleton loaders or spinners on slow API calls.
+9. **404 page** — add a fallback `<Route path="*">` for unknown URLs.
